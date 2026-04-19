@@ -1506,6 +1506,40 @@ body::after {
 .login-status.error { color: var(--spidey-red); }
 .login-status.success { color: var(--green); }
 
+/* Loading spinner */
+.loading-spinner {
+    width: 60px;
+    height: 60px;
+    margin: 20px auto;
+    position: relative;
+}
+
+.loading-spinner::before,
+.loading-spinner::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 4px solid transparent;
+}
+
+.loading-spinner::before {
+    border-top-color: var(--spidey-red);
+    border-right-color: var(--spidey-red);
+    animation: spin 1s linear infinite;
+}
+
+.loading-spinner::after {
+    border-bottom-color: var(--gold);
+    border-left-color: var(--gold);
+    animation: spin 1.5s linear infinite reverse;
+    inset: 8px;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
 /* === PLAYER CHIP === */
 .player-chip {
     background: linear-gradient(135deg, var(--spidey-red), var(--spidey-red-dark));
@@ -1869,22 +1903,14 @@ body::after {
 </head>
 <body>
 
-<!-- LOGIN SCREEN -->
+<!-- LOADING SCREEN -->
 <div class="login-screen" id="loginScreen">
     <div class="login-box">
         <div class="login-logo">🕷️</div>
-        <div class="login-title">CHÀO MỪNG HERO!</div>
-        <div class="login-subtitle">✦ NHẬP TÊN SIÊU ANH HÙNG ✦</div>
-        <input 
-            type="text" 
-            class="login-input" 
-            id="playerNameInput" 
-            placeholder="Tên của con..." 
-            maxlength="20"
-            autocomplete="off"
-        >
-        <button class="primary-btn" id="loginBtn" style="margin: 0 auto;">🚀 VÀO GAME</button>
-        <div class="login-status" id="loginStatus">Đang kết nối căn cứ Spider-HQ...</div>
+        <div class="login-title">SPIDER-MAN TOÁN HỌC</div>
+        <div class="login-subtitle">✦ ĐANG KHỞI ĐỘNG HỆ THỐNG ✦</div>
+        <div class="loading-spinner"></div>
+        <div class="login-status" id="loginStatus">🕸️ Đang kết nối căn cứ Spider-HQ...</div>
     </div>
 </div>
 
@@ -1929,7 +1955,7 @@ body::after {
 
     <!-- STATS BAR -->
     <div class="stats-bar">
-        <div class="player-chip" id="playerChip" onclick="logout()">🕷️ <span id="playerName">Hero</span></div>
+        <div class="player-chip">🕷️ <span id="playerName">Hero</span></div>
         <div class="stat-chip score">⭐ <span id="score">0</span></div>
         <div class="stat-chip streak">🔥 <span id="streak">0</span></div>
         <div class="stat-chip level">🛡️ LV <span id="level">1</span></div>
@@ -3551,9 +3577,9 @@ let saveTimer = null;
 let lastSavedScore = -1;
 
 function slugifyName(name) {
-    // Tạo playerId từ tên — lowercase, bỏ khoảng trắng & ký tự đặc biệt
+    // Giữ lại cho trường hợp cần sau này (không còn được dùng sau khi bỏ login)
     return name.toLowerCase()
-        .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // remove Vietnamese diacritics
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
         .replace(/[^a-z0-9]/g, '_')
         .replace(/_+/g, '_')
         .replace(/^_|_$/g, '')
@@ -3641,90 +3667,46 @@ async function loadProgress(playerId) {
     return false;
 }
 
-// ============ LOGIN ============
-async function doLogin() {
-    const input = document.getElementById('playerNameInput');
+// ============ AUTO CONNECT TO FIREBASE ============
+// Website chỉ cho 1 người chơi → dùng ID cố định, không cần đăng nhập
+const PLAYER_ID = 'my_hero';
+const PLAYER_NAME = 'Spider-Hero';
+
+async function initPlayer() {
+    state.playerId = PLAYER_ID;
+    state.playerName = PLAYER_NAME;
+    document.getElementById('playerName').textContent = PLAYER_NAME;
+    
+    // Hiện loading
     const statusEl = document.getElementById('loginStatus');
-    const name = input.value.trim();
-
-    if (!name || name.length < 2) {
-        statusEl.textContent = '⚠️ Tên phải có ít nhất 2 ký tự!';
-        statusEl.className = 'login-status error';
-        input.focus();
-        return;
-    }
-
-    statusEl.textContent = '🕸️ Đang kết nối...';
+    statusEl.textContent = '🕸️ Đang tải dữ liệu...';
     statusEl.className = 'login-status';
-    sound.init();
-    sound.click();
-
-    state.playerName = name;
-    state.playerId = slugifyName(name);
-
-    const loaded = await loadProgress(state.playerId);
-
-    // Save to browser so next visit remembers
+    
     try {
-        // Note: Using a simple in-memory persistence fallback
-        // If sessionStorage is available, use it; otherwise skip
-        if (typeof sessionStorage !== 'undefined') {
-            sessionStorage.setItem('spidey_player', JSON.stringify({
-                id: state.playerId,
-                name: state.playerName
-            }));
+        const loaded = await loadProgress(PLAYER_ID);
+        if (loaded) {
+            statusEl.textContent = '✅ Đã tải dữ liệu!';
+            statusEl.className = 'login-status success';
+        } else {
+            // Lần đầu vào → tạo record mới trên Firebase
+            statusEl.textContent = '🎉 Bắt đầu hành trình mới!';
+            statusEl.className = 'login-status success';
+            await saveProgress();
         }
-    } catch(e) {}
-
-    if (loaded) {
-        statusEl.textContent = '✅ Chào mừng trở lại, ' + name + '!';
-        statusEl.className = 'login-status success';
-        sound.correct();
-    } else {
-        statusEl.textContent = '🎉 Tạo tài khoản mới thành công!';
-        statusEl.className = 'login-status success';
-        sound.levelUp();
-        // Initial save
-        await saveProgress();
+    } catch (err) {
+        console.error('Init error:', err);
+        statusEl.textContent = '⚠️ Chơi offline (không lưu được)';
+        statusEl.className = 'login-status error';
     }
-
+    
+    renderBadges();
+    updateStats();
+    
+    // Ẩn loading screen
     setTimeout(() => {
         document.getElementById('loginScreen').classList.add('hidden');
-        document.getElementById('playerName').textContent = name;
-        renderBadges();
-        updateStats();
-    }, 800);
+    }, 500);
 }
-
-function logout() {
-    if (!confirm('Đăng xuất khỏi tài khoản hero?')) return;
-    try {
-        if (typeof sessionStorage !== 'undefined') {
-            sessionStorage.removeItem('spidey_player');
-        }
-    } catch(e) {}
-    // Reset state
-    state.playerId = null;
-    state.playerName = '';
-    state.score = 0;
-    state.streak = 0;
-    state.level = 1;
-    state.xp = 0;
-    state.xpNeeded = 100;
-    state.bossIndex = 0;
-    Object.values(state.badges).forEach(b => b.unlocked = false);
-    // Show login
-    document.getElementById('playerNameInput').value = '';
-    document.getElementById('loginStatus').textContent = 'Nhập tên để tiếp tục';
-    document.getElementById('loginStatus').className = 'login-status';
-    document.getElementById('loginScreen').classList.remove('hidden');
-    goHome();
-}
-
-document.getElementById('loginBtn').addEventListener('click', doLogin);
-document.getElementById('playerNameInput').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') doLogin();
-});
 
 // ============ SOUND TOGGLE ============
 function toggleSound() {
@@ -3737,8 +3719,8 @@ function toggleSound() {
         sound.click();
     }
     try {
-        if (typeof sessionStorage !== 'undefined') {
-            sessionStorage.setItem('spidey_sound', sound.enabled ? '1' : '0');
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('spidey_sound', sound.enabled ? '1' : '0');
         }
     } catch(e) {}
 }
@@ -3756,8 +3738,8 @@ document.addEventListener('keydown', initAudioOnInteraction, { once: true });
 
 // Khôi phục sound preference
 try {
-    if (typeof sessionStorage !== 'undefined') {
-        const saved = sessionStorage.getItem('spidey_sound');
+    if (typeof localStorage !== 'undefined') {
+        const saved = localStorage.getItem('spidey_sound');
         if (saved === '0') {
             sound.enabled = false;
             document.getElementById('soundBtn').innerHTML = '🔇';
@@ -3772,7 +3754,6 @@ window.goHome = goHome;
 window.startGame = startGame;
 window.newClassicQuestion = newClassicQuestion;
 window.closeModal = closeModal;
-window.logout = logout;
 window.showLeaderboard = showLeaderboard;
 window.loadLeaderboard = loadLeaderboard;
 window.resetProgress = resetProgress;
@@ -3896,37 +3877,10 @@ async function resetProgress() {
 
 // ============ INIT ============
 renderBadges();
-
-// Auto-login if session exists
-(function autoLogin() {
-    try {
-        if (typeof sessionStorage !== 'undefined') {
-            const saved = sessionStorage.getItem('spidey_player');
-            if (saved) {
-                const { id, name } = JSON.parse(saved);
-                if (id && name) {
-                    state.playerId = id;
-                    state.playerName = name;
-                    document.getElementById('playerNameInput').value = name;
-                    loadProgress(id).then(() => {
-                        document.getElementById('loginStatus').textContent = '✅ Chào mừng trở lại!';
-                        document.getElementById('loginStatus').className = 'login-status success';
-                        document.getElementById('playerName').textContent = name;
-                        setTimeout(() => {
-                            document.getElementById('loginScreen').classList.add('hidden');
-                            renderBadges();
-                            updateStats();
-                        }, 500);
-                    });
-                    return;
-                }
-            }
-        }
-    } catch(e) {}
-    document.getElementById('loginStatus').textContent = '✦ Nhập tên để bắt đầu ✦';
-})();
-
 updateStats();
+
+// Kết nối Firebase và tải dữ liệu ngay khi vào trang
+initPlayer();
 
 // Save before user leaves page
 window.addEventListener('beforeunload', () => {
